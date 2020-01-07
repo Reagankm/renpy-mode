@@ -3,3 +3,10 @@
 PyTom's old major mode for Ren'Py.
 
 I'm maintaining it because the original upstream developer doesn't use either Emacs or Ren'Py anymore. If you use this and know Elisp better than I do (a very low bar), let me know and this major mode is yours.
+
+** Installation
+
+  * Download/clone this repo to your desired location.
+  * In Emacs, use the command `M-x package-install-file` and point it to the renpy.el file location
+    * This will install it to your `~/.emacs.d/elpa/` directory (or your custom location if you've manually set a different `package-user-dir` in Emacs)
+  * In your .emacs file, add `(require 'renpy)`
