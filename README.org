@@ -1,8 +1,6 @@
 #+TITLE: Ren'Py mode
 
-PyTom's old major mode for Ren'Py.
-
-I'm maintaining it because the original upstream developer doesn't use either Emacs or Ren'Py anymore. If you use this and know Elisp better than I do (a very low bar), let me know and this major mode is yours.
+PyTom's old major mode for Ren'Py, previously maintained by treymerkley, now maintained by me.
 
 ** Installation
 
@@ -10,3 +8,9 @@ I'm maintaining it because the original upstream developer doesn't use either Em
   * In Emacs, use the command =M-x package-install-file= and point it to the renpy.el file location
     * This will install it to your =~/.emacs.d/elpa/= directory (or your custom location if you've manually set a different =package-user-dir= in Emacs)
   * In your .emacs file, add =(require 'renpy)=
+  
+** History
+
+Originally this was PyTom's major mode for Ren'Py but he no longer uses Emacs or Ren'Py anymore. Then maintenance was taken over by Trey Merkley @treymerkley but he was looking for someone else to take it on who was more familiar with Elisp. So now it is maintained by me.  
+
+Come at me, parentheses. I dare you.
