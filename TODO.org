@@ -10,7 +10,7 @@
 
   - [X] setup the tests for emacs 30 only
 
-  - [ ] ren'py statements
+  - [X] ren'py statements
 
   - [ ] python blocks
 
