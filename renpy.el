@@ -1529,6 +1529,90 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
   (renpy-end-of-block)
   (exchange-point-and-mark))
 
+;;;; Completion
+
+(defcustom renpy-setup-completion t
+  "Non-nil means Renpy mode sets up completion for the buffer."
+  :type 'boolean
+  :group 'renpy)
+
+(defun renpy--completion-context ()
+  "Return the completion category for point."
+  ;; TODO: Make sure the point is not within a comment or a string.
+  ;; TODO: More specific contexts: show text, show expression, ...
+  (save-excursion
+    (skip-syntax-backward "w_")
+    (let* ((_ (skip-syntax-backward " "))
+           (prev  (thing-at-point 'symbol)))
+      (cond
+       ;; call <point>
+       ((equal prev "call") :label)
+       ;; jump <point>
+       ((equal prev "jump") :label)
+       ;; show/scene/hide <point>
+       ((member prev '("show" "scene" "hide")) :image)
+       ;; at <point>
+       ((equal prev "at") :transform)
+       ;; default
+       (t :none)))))
+
+(defvar renpy--label-definition-re
+  (renpy-rx label-keyword (1+ space) (group label-name))
+  "Regexp for looking up label definitions.")
+
+(defun renpy--collect-labels ()
+  "Return all unique label names in the current buffer."
+  (let (labels)
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward renpy--label-definition-re nil t)
+        (push (match-string-no-properties 1) labels)))
+    labels))
+
+(defvar renpy--image-definition-re
+  (renpy-rx image-keyword (1+ space)
+	    (group image-name		; tag
+		   (0+ space name))	; attributes
+	    (0+ space) "=")
+  "Regexp for looking up image definitions.")
+
+(defun renpy--collect-images ()
+  "Return all unique image names in the current buffer."
+  (let (images)
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward renpy--image-definition-re nil t)
+        (push (match-string-no-properties 1) images)))
+    images))
+
+;;;###autoload
+(defun renpy-completion-at-point ()
+  "Provide completion data for the symbol at point in Ren'Py buffers."
+  (when (derived-mode-p 'renpy-mode)
+    (let (candidates beg end)
+      (pcase (renpy--completion-context)
+	(:label
+	 (setq end (point)
+	       beg (save-excursion
+		     (skip-syntax-backward "w_")
+		     (point))
+	       candidates (renpy--collect-labels)))
+	(:image
+	 (setq end (point)
+	       beg (save-excursion
+		     (skip-syntax-backward "w_")
+		     (point))
+	       candidates (renpy--collect-images)))
+	(_ nil))
+      (when candidates
+        (list beg end candidates :exclusive 'no)))))
+
+;;;###autoload
+(defun renpy-enable-completion-at-point ()
+  "Enable Ren'Py completion in the current buffer."
+  (add-hook 'completion-at-point-functions
+            #'renpy-completion-at-point nil t))
+
 ;;;; Modes.
 
 ;;;###autoload
@@ -1600,7 +1684,11 @@ with skeleton expansions for compound statement templates.
   (setq electric-indent-inhibit t)
   ;; Setup indentation (Ren'Py cannot use tabs).
   (when renpy-guess-indent (renpy-guess-indent))
-  (setq indent-tabs-mode nil))
+  (setq indent-tabs-mode nil)
+
+  ;; Install the capf function.
+  (when renpy-setup-completion
+    (renpy-enable-completion-at-point)))
 
 ;; Not done automatically in Emacs 21 or 22.
 (defcustom renpy-mode-hook nil

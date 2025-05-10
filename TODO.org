@@ -10,7 +10,7 @@
 
   - [X] setup the tests for emacs 30 only
 
-  - [ ] ren'py statements
+  - [X] ren'py statements
 
   - [ ] python blocks
 
@@ -37,9 +37,19 @@
 See https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts for
 inspiration:
 
-- [ ] local/global label completion
+- [X] local label completion
 
-- [ ] keyword-specific completions
+- [X] local image completion
+
+- [ ] local hide completion
+
+- [ ] local transform completion
+
+- [ ] image directory completion
+
+- [ ] keyword completion
+
+- [ ] global completion
 
 * Integration
 
