@@ -37,9 +37,11 @@
 See https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts for
 inspiration:
 
-- [ ] local/global label completion
+- [X] local label completion
 
-- [ ] keyword-specific completions
+- [ ] global label completion
+
+- [ ] keyword completions
 
 * Integration
 
