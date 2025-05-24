@@ -1,5 +1,9 @@
 ;;; renpy-font-lock-test.el ---                     -*- lexical-binding: t; -*-
 
+;;; Commentary:
+
+;; Font-lock unit tests.  Tests below focus on narrow font-lock cases.
+
 ;;; Code:
 
 (require 'ert)

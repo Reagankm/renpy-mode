@@ -1,11 +1,13 @@
-;;; renpy-test.el ---                                -*- lexical-binding: t; -*-
+;;; renpy-imenu-test.el ---                                -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; Imenu unit tests
 
 ;;; Code:
 
 (require 'ert)
 (require 'renpy)
-
-;;;; Imenu tests
 
 ;; TODO: Figure out proper imenu names.
 
@@ -114,5 +116,4 @@ default points = 0
       (should (alist-get "points" default-alist nil nil #'string-equal)))))
 
 
-(provide 'renpy-test)
-;;; renpy-test.el ends here
+;;; renpy-imenu-test.el ends here
