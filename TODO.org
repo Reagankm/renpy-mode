@@ -34,18 +34,70 @@
 
 * Completion
 
-See https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts for
-inspiration:
+- [X] local label completion
 
-- [ ] local/global label completion
+- [X] local image completion
 
-- [ ] keyword-specific completions
+- [X] local hide completion
+
+- [-] local transform completion
+
+  - [X] single transform
+
+  - [ ] dot-separated identifiers
+
+  - [ ] multiple comma-separated transforms
+
+  - [ ] built-in transforms
+
+- [ ] image directory completion
+
+- [ ] keyword completion
+
+- [ ] global completion
+
+** Further notes
+
+On every project compilation Ren'Py builds a file =game/saves/navigation.json=. The file
+contains project meta data as well as lists of symbol definition files/lines grouped by
+type: callables, transforms, labels, screens, defines. VSCode uses the file to support
+definition search and completion.
+
+It should be easy to watch the file using the file notification facility
+(https://www.gnu.org/software/emacs/manual/html_node/elisp/File-Notifications.html) and
+maintain a project-wide symbol index on the Emacs side. This simplifies both project-wide
+symbol completion and definition lookups.
+
+Key VSCode plugin implementation points:
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts -
+  completion glue code
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/navigation-data.ts -
+  navigation data as seen by the VSCode plugin
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/navigation.ts -
+  additional helper classes
 
 * Integration
 
 - [ ] Ren'py launcher integration (see https://github.com/elizagamedev/renpy-mode)
 
-- [ ] Suggest for inclusion?
+- [ ] renpy lint + flymake
+
+- [ ] renpy compile
+
+- [ ] Suggest for inclusion to Ren'py itself
+
+- [ ] display images through a popup window or a tooltip
+
+- [ ] display colors / color picker
+
+  suggest rainbow-mode / colorful-mode for this purpose in documentation
+
+- [ ] snippets based on vscode ones
+
+  https://github.com/renpy/vscode-language-renpy/blob/master/snippets/snippets.json
 
 * Document
 
@@ -54,6 +106,8 @@ inspiration:
 - [ ] Launcher integration
 
 - [ ] Contribution
+
+- [ ] document linting, emacs version support, dev process
 
 * Publishing
 
