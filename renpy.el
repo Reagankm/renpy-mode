@@ -36,6 +36,7 @@
 ;;; Code:
 
 (require 'imenu)
+(require 'subr-x)
 
 (defgroup renpy nil
   "Major mode for editing Ren'Py files."
@@ -104,7 +105,7 @@
 		      "from" "function" "global" "grid" "group" "has" "hbox"
 		      "hide" "hotbar" "hotspot" "if" "image" "imagebutton"
 		      "imagemap" "import" "in" "index" "init" "input" "is"
-		      "jump" "key" "knot" "label" "lambda" "layeredimage" "menu"
+		      "jump" "key" "knot" "label" "layer" "lambda" "layeredimage" "menu"
 		      "monologue" "mousearea" "music" "nearrect" "new"
 		      "nointeract" "nonlocal" "not" "null" "nvl" "offset" "old"
 		      "on" "onlayer" "or" "parallel" "pass" "pause" "play"
@@ -1529,6 +1530,429 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
   (renpy-end-of-block)
   (exchange-point-and-mark))
 
+;;;; Completion
+
+(defcustom renpy-setup-completion t
+  "Non-nil means Renpy mode sets up completion for the buffer."
+  :type 'boolean
+  :group 'renpy)
+
+(defconst renpy--python-header-re
+  (rx bol (* space)
+      (optional "init" (+ space) (*? nonl))
+      "python" (*? nonl) ":")
+  "A regexp matching Python blocks.")
+
+(defconst renpy--renpy-header-re
+  (rx bol (* space)
+      (or "label" "screen" "transform" "style" "menu" "image")
+      symbol-end)
+  "A regexp matching blocks that are definitely not Python.")
+
+(defun renpy--python-block-p ()
+  "Return non-nil when the point is inside a Ren'Py Python block."
+  (save-excursion
+    (let (python-p done)
+      ;; Search for lines that end with ':' and aren't comments/blank.  3 cases
+      ;; possible:
+      ;; 1. Renpy statement - the block is *not* Python.
+      ;; 2. Python block statement - the block *is* Python.
+      ;; 3. Usual block-defining statement - keep looking.
+      (while (not (or done (bobp)))
+	(if (not (renpy-beginning-of-block))
+	    (setq done t)
+          (cond
+	   ;; Renpy statement found, done and no Python found.
+           ((looking-at-p renpy--renpy-header-re)
+            (setq done t))
+	   ;; Python statement found, done.
+           ((looking-at-p renpy--python-header-re)
+            (setq python-p t
+                  done t))
+           ;; An ordinary block, keep looking.
+           )))
+      python-p)))
+
+(defun renpy--inline-python-statement-p ()
+  "Return non-nil when the point is inside a one-line Python statement."
+  (save-excursion
+    (renpy-beginning-of-statement)
+    (looking-at-p (rx (zero-or-more space)
+		      "$"))))
+
+(defun renpy--completion-context-p ()
+  "Return non-nil if the point is at a point suitable for completion."
+  (not (or
+	;; Literals.
+	(renpy-in-string-comment)
+	;; Not in parens.
+	(not (zerop (car (syntax-ppss))))
+	;; Single-line python statements.
+	(renpy--inline-python-statement-p)
+	;; Check enclosing blocks.
+	(renpy--python-block-p))))
+
+(defconst renpy--completion-keywords
+  '("call" "jump" "show" "scene" "hide" "at" "as" "expression" "from"
+    "zorder" "onlayer" "behind" "screen" "layer" "with")
+  "A list of keywords that can be around a completion context point.")
+
+(defun renpy--skip-token-backward ()
+  "Read a previous token and return a value representing it.
+Known completion-related keywords are returned as symbols.  Commas
+become symbol `comma'.  Other tokens are returned as strings.  Parsing
+stops at line beginning and the function returns nil.
+
+The function assumes correct call context as defined by
+`renpy--completion-context-p'"
+  (let* (tok-string
+	 (tok-beg (progn (skip-syntax-backward " ")
+			 (point)))
+	 (tok-end (progn
+		    ;; Just a symbol.
+		    (skip-syntax-backward "w_")
+		    ;; Punctuation?
+		    (when (equal (point) tok-beg)
+		      (skip-syntax-backward "."))
+		    ;; No movement? Try skipping a sexp.
+		    (when  (and (equal (point) tok-beg)
+				(not (bolp)))
+		      (backward-sexp))
+		    (point))))
+    (setq tok-string (buffer-substring-no-properties tok-beg tok-end))
+    (cond
+     ((member tok-string renpy--completion-keywords)
+      (intern tok-string))
+     ((equal tok-string ",") 'comma)
+     ;; (string-empty-p) not available in Emacs 27.1.
+     ((string-equal tok-string "") nil)
+     (t tok-string))))
+
+(defun renpy--parse-backwards-line ()
+  "Parse the current line backwards from the point.
+Return a list of tokens found in the line, nil if there is nothing to
+parse or the point context is invalid."
+  (unless (renpy-in-string-comment)
+    (save-excursion
+      (let (res (tok (renpy--skip-token-backward)))
+	(while tok
+	  (push tok res)
+	  (setq tok (renpy--skip-token-backward)))
+	res))))
+
+(defun renpy--skip-to-keyword-forward ()
+  "Move the point forward to the first known keyword word or eol."
+  (let (prev-pos (pos (point)))
+    (while
+	(not (or (eolp)
+		 (eq prev-pos pos)
+		 (save-excursion
+		   (skip-syntax-forward " ")
+		   (looking-at-p (regexp-opt renpy--completion-keywords)))))
+      (condition-case nil
+	  (forward-sexp)
+	(scan-error nil))
+      (setq prev-pos pos)
+      (setq pos (point)))))
+
+(defun renpy--skip-to-keyword-backward (&optional keywords)
+  "Move the point backwards to the first known keyword word or bol.
+KEYWORDS is a list of keyword strings to skip to or
+`renpy--completion-keywords'."
+  (let (prev-pos
+	(pos (point))
+	(keywords (or keywords renpy--completion-keywords)))
+    (while
+	(not (or (bolp)
+		 (eq prev-pos pos)
+		 (save-excursion
+		   (skip-syntax-backward " ")
+		   (member (thing-at-point 'symbol 'no-properties)
+			   keywords))))
+      (condition-case nil
+	  (backward-sexp)
+	(scan-error nil))
+      (setq prev-pos pos)
+      (setq pos (point)))))
+
+(defun renpy--tokens-to-tree (tokens)
+  "Accept a list of TOKENS, collapse into a tree.
+Tree tree is a list of keywords and lists of non-keyword tokens.  The
+tree is meant to simplify use for pattern matching."
+  (let (res lst)
+    (dolist (tok tokens)
+      (cond
+       ((and (symbolp tok)
+	     (eq tok 'comma))
+	(push tok lst))
+       ((symbolp tok)
+	(when lst
+	  (push lst res)
+	  (setq lst nil))
+	(push tok res))
+       (t (push tok lst))))
+    (when lst (push (reverse lst) res))
+    (nreverse res)))
+
+(defun renpy--comma-sep-p (tokens)
+  "Check that TOKENS s a list of strings separated by a `comma' symbol.
+To be valid the TOKENS list should have an even number of elements.
+Zero-length list counts as even."
+  (let ((correct (not (symbolp tokens))))
+    (while (and tokens correct)
+      (setq correct (and (stringp (pop tokens))
+			 (eq (pop tokens) 'comma))))
+    correct))
+
+(defun renpy--first-keyword (tokens)
+  "Return the first keyword (a symbol) in the TOKENS list."
+  (while (not (symbolp (car tokens)))
+    (setq tokens (cdr tokens)))
+  (car tokens))
+
+(defun renpy--string-list-p (arg)
+  "Check if ARG is a list of strings."
+  (while (and (consp arg) (stringp (car arg)))
+    (setq arg (cdr arg)))
+  (null arg))
+
+(defun renpy--keyword-comma-sep-p (target prev-keyword prev)
+  "True if PREV-KEYWORD is TARGET followed by a comma-separated list.
+TARGET is a symbol representing the keyword.  PREV-KEYWORD is the
+previous keyword on the line.  PREV is the immediately preceding token,
+possibly a comma-separated list of strings."
+  (and (eq prev-keyword target)
+       (or (eq prev prev-keyword)
+	   (renpy--comma-sep-p prev))))
+
+(defun renpy--completion-context-dispatch (tree)
+  "Pattern match against the TREE and return a completion context keyword."
+  ;; TODO: Maybe a DSL would be convenient to make adding contexts easy.
+  ;; TODO: :image-tag is not handled for now.  Collection is easy to add.
+  ;; TODO: Note that "show layer" does not have the "with" clause.  Use a
+  ;; predefined list of known transitions + None.
+  (let* ((first-keyword (car tree))
+	 (rest (cdr tree))
+	 (rev-tree (reverse rest))
+	 (prev (car rev-tree))
+	 (prev-keyword (renpy--first-keyword rev-tree)))
+    (pcase first-keyword
+      ;; Show statement.
+      ('show
+       (cond
+	((renpy--keyword-comma-sep-p 'at prev-keyword prev) :transform)
+	((renpy--keyword-comma-sep-p 'behind prev-keyword prev) :image-tag)
+	((eq prev 'with) :transition)
+	((and (<= (length rest) 1) (renpy--string-list-p prev)) :image)))
+      ;; Scene statement.
+      ('scene
+       (cond
+	((renpy--keyword-comma-sep-p 'at prev-keyword prev) :transform)
+	((renpy--keyword-comma-sep-p 'behind prev-keyword prev) :image-tag)
+	((eq prev 'with) :transition)
+	((and (<= (length rest) 1) (renpy--string-list-p prev)) :image)))
+      ;; Hide statement.
+      ('hide
+       (cond
+	((eq prev 'with) :transition)
+	((and (<= (length rest) 1) (renpy--string-list-p prev) :image))))
+      ;; Call statement.
+      ('call (and (null rest) :label))
+      ;; Jump statement.
+      ('jump (and (null rest) :label))
+      ;; With statement.
+      ('with (and (null rest) :transition)))))
+
+(defun renpy--completion-context ()
+  "Return the completion context keyword symbol at point."
+  ;; TODO: Currently the context is defined as "not string, comment, python",
+  ;; which works for now.  In the future the code below should begin taking
+  ;; Ren'py sub-languages into account.  What this practically means that
+  ;; pattern lists will depend on the language defined by a parent block.
+  (and (renpy--completion-context-p)
+       (save-excursion
+	 ;; Flush the existing prefix.
+	 ;;
+	 ;; TODO: Skipping the prefix for all context works for now this might
+	 ;; lead to problems related to how different contexts might have
+	 ;; different understandings of what a prefix is (word, word+puntuation,
+	 ;; multiple words).  So the parsing function should see every token,
+	 ;; and then we can skip prefixes in a context-specific way.
+	 ;;
+	 ;; NOTE: Skip global_label.local_label prefixes: 2 symbols separated by
+	 ;; a dot.
+	 (skip-syntax-backward "w_")
+	 (skip-chars-backward ".")
+	 (skip-syntax-backward "w_")
+	 (thread-first
+	   (renpy--parse-backwards-line)
+	   (renpy--tokens-to-tree)
+	   (renpy--completion-context-dispatch)))))
+
+(defvar-local renpy--collect-cache nil
+  "Alist of (KIND TICK SYMBOL) for cached Ren’Py completion in this buffer.")
+
+(defun renpy--collect-cached (kind collector-function prefix)
+  "Return cached DATA for KIND, or call COLLECTOR-FUNCTION to rebuild it.
+KIND is symbol representing the kind of cached data.  COLLECTOR-FUNCTION
+is a function that scans the buffer and returns a list of symbols to be
+cached.  PREFIX is a completion text to be passed to the
+COLLECTOR-FUNCTION."
+  (let* ((tick   (buffer-chars-modified-tick))
+         (entry  (assq kind renpy--collect-cache))
+         (entry-tick  (nth 1 entry))
+         (entry-data  (nth 2 entry)))
+    (if (and entry (= tick entry-tick))
+        entry-data
+      (let ((fresh (funcall collector-function prefix)))
+        (setq renpy--collect-cache
+              (cons (list kind tick fresh)
+                    (assq-delete-all kind renpy--collect-cache)))
+        fresh))))
+
+(defconst renpy--label-definition-re
+  (renpy-rx label-keyword (1+ space) (group label-name))
+  "Regexp for looking up label definitions.")
+
+(defun renpy--collect-labels-cached (&optional prefix)
+  "Cached version of `renpy--collect-labels'.
+PREFIX is a completion text to be passed into the collecting function."
+  (renpy--collect-cached 'labels #'renpy--collect-labels prefix))
+
+(defun renpy--collect-labels (&optional _)
+  "Return all label names in the current buffer."
+  (save-restriction
+    (widen)
+    (let (results)
+      (save-excursion
+	(goto-char (point-min))
+	(while (re-search-forward renpy--label-definition-re nil t)
+	  (let ((str (match-string-no-properties 1)))
+            (push str results))))
+      results)))
+
+(defconst renpy--image-definition-re
+  (renpy-rx image-keyword (1+ space)
+	    (group image-name		; tag
+		   (0+ space name))	; attributes
+	    (0+ space) (or "=" ":"))
+  "Regexp for looking up image definitions.")
+
+(defun renpy--collect-images-cached (&optional prefix)
+  "Cached version of `renpy--collect-images'.
+PREFIX is a completion text to be passed into the collecting function."
+  (renpy--collect-cached 'images #'renpy--collect-images prefix))
+
+(defun renpy--collect-images (&optional _)
+  "Return all image names in the current buffer."
+  (save-restriction
+    (widen)
+    (let (results)
+      (save-excursion
+	(goto-char (point-min))
+	(while (re-search-forward renpy--image-definition-re nil t)
+          (let ((str (match-string-no-properties 1)))
+            (push str results))))
+      results)))
+
+(defconst renpy--transform-definition-re
+  (renpy-rx transform-keyword (1+ space) (group name))
+  "Regexp for looking up transform definitions.")
+
+(defun renpy--collect-transforms-cached (&optional prefix)
+  "Cached version of `renpy--collect-transforms'.
+PREFIX is a completion text to be passed into the collecting function."
+  (renpy--collect-cached 'transforms #'renpy--collect-transforms prefix))
+
+(defun renpy--collect-transforms (&optional _)
+  "Return all transform names in the current buffer."
+  (save-restriction
+    (widen)
+    (let (results)
+      (save-excursion
+	(goto-char (point-min))
+	(while (re-search-forward renpy--transform-definition-re nil t)
+          (let ((str (match-string-no-properties 1)))
+            (push str results))))
+      results)))
+
+;; TODO: Also add transition classes?
+;; Extracted from https://www.renpy.org/doc/html/transitions.html.
+(defconst renpy--predefined-transitions
+  '("dissolve" "fade" "pixellate"
+    "move" "moveinright" "moveinleft" "moveintop" "moveinbottom"
+    "moveoutright" "ease" "moveoutleft" "moveouttop" "moveoutbottom"
+    "ease" "easeinright" "easeinleft" "easeintop" "easeinbottom"
+    "easeoutright" "easeoutleft" "easeouttop" "easeoutbottom"
+    "zoomin" "zoomout" "zoominout"
+    "vpunch" "hpunch" "blinds" "squares"
+    "wipeleft" "wiperight" "wipeup" "wipedown"
+    "slideleft" "slideright" "slideup" "slidedown"
+    "slideawayleft" "slideawayright" "slideawayup" "slideawaydown"
+    "pushright" "pushleft" "pushup" "pushdown"
+    "irisin" "None"
+    )
+  "A list of predefined transitions.")
+
+(defun renpy--collect-transitions (&optional _)
+  "Return predefined transitions."
+  renpy--predefined-transitions)
+
+(defun renpy-completion-at-point ()
+  "Provide completion data for the symbol at point in Ren'Py buffers."
+  (save-restriction
+    (widen)
+    (let (collect beg end)
+      (pcase (renpy--completion-context)
+	;; Given a recognized context, we know:
+	;; 1. Expected structure of the partially completed prefix.
+	;; 2. A function to use for candidate lookup.
+	(:label
+	 ;; Labels are words + symbol constituents + punctuation.
+	 (setq end (save-excursion
+		     (skip-syntax-forward "w_.")
+		     (point))
+	       beg (save-excursion
+		     (skip-syntax-backward "w_.")
+		     (point))
+	       collect #'renpy--collect-labels-cached))
+	(:image
+	 ;; Images are whitespace-separated words + symbol constituents +
+	 ;; punctuation.
+	 (setq end (save-excursion
+		     (renpy--skip-to-keyword-forward)
+		     (point))
+	       beg (save-excursion
+		     ;; NOTE: The list of keywords below should take all
+		     ;; contexts expecting images into account.
+		     (renpy--skip-to-keyword-backward '("show" "hide" "scene"))
+		     (point))
+	       collect #'renpy--collect-images-cached))
+	(:transform
+	 ;; Transforms are words + symbol constituents.
+	 (setq end (save-excursion
+		     (skip-syntax-forward "w_")
+		     (point))
+	       beg (save-excursion
+		     (skip-syntax-backward "w_")
+		     (point))
+	       collect #'renpy--collect-transforms-cached))
+	(:transition
+	 ;; Transitions are words + symbol constituents.
+	 (setq end (save-excursion
+		     (skip-syntax-forward "w_")
+		     (point))
+	       beg (save-excursion
+		     (skip-syntax-backward "w_")
+		     (point))
+	       collect #'renpy--collect-transitions)))
+      (and collect (list beg end
+			 (completion-table-dynamic collect)
+			 ;; TODO: Once we know the precise context, other completion
+			 ;; engines should not apply.
+			 :exclusive 'no)))))
+
+
 ;;;; Modes.
 
 ;;;###autoload
@@ -1600,7 +2024,12 @@ with skeleton expansions for compound statement templates.
   (setq electric-indent-inhibit t)
   ;; Setup indentation (Ren'Py cannot use tabs).
   (when renpy-guess-indent (renpy-guess-indent))
-  (setq indent-tabs-mode nil))
+  (setq indent-tabs-mode nil)
+
+  ;; Install the capf function.
+  (when renpy-setup-completion
+    (add-hook 'completion-at-point-functions
+	      #'renpy-completion-at-point nil t)))
 
 ;; Not done automatically in Emacs 21 or 22.
 (defcustom renpy-mode-hook nil
