@@ -1,5 +1,9 @@
 ;;; renpy-font-lock-test.el ---                     -*- lexical-binding: t; -*-
 
+;;; Commentary:
+
+;; Font-lock unit tests.  Tests below focus on narrow font-lock cases.
+
 ;;; Code:
 
 (require 'ert)
@@ -64,6 +68,13 @@ show eileen happy at left with move
 hide eileen with dissolve
 # <- font-lock-keyword-face
 #^^^        ^^^^ font-lock-keyword-face
+")
+
+  (ert-font-lock-deftest test-renpy-font-lock-show-layer renpy-mode
+    "
+show layer lay111 at left
+# <- font-lock-keyword-face
+#^^^ ^^^^^        ^^ font-lock-keyword-face
 ")
 
   (ert-font-lock-deftest test-renpy-font-lock-scene renpy-mode

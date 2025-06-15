@@ -22,6 +22,8 @@
 
 - [ ] indentation tests
 
+- [ ] check multiline strings and expressions (renpy is special here)
+
 - [ ] automated testing with multiple emacs versions
 
 * Xref support
@@ -34,18 +36,103 @@
 
 * Completion
 
-See https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts for
-inspiration:
+A lot of inspiration for local parsing can be found in:
 
-- [ ] local/global label completion
+- https://github.com/renpy/renpy/blob/master/renpy/parser.py
 
-- [ ] keyword-specific completions
+- https://github.com/renpy/renpy/blob/master/renpy/lexer.py
+
+The plan:
+
+- [X] local label completion
+
+- [X] local image completion
+
+- [X] local hide completion
+
+- [-] local transform completion
+
+  - [X] single transform
+
+  - [X] multiple comma-separated transforms
+
+  - [ ] dot-separated identifiers
+
+  - [ ] built-in transforms
+
+- [ ] image tag/attributes separation
+
+  - [ ] hide, etc only need a tag? check in the parser
+
+- [ ] show/hide/call screen statement full support
+
+- [ ] list all the statements that the mode can support
+
+- [ ] screen completion
+
+- [ ] image directory completion
+
+- [ ] keyword completion
+
+- [ ] project buffer completion
+
+- [ ] global completion (navigation.json?)
+
+- [ ] Sqlite for symbol cache?
+
+- [ ] Filenotify for updates?
+
+- [ ] make the completion/xref backend customizable: buffer-local, open buffers,
+  project-wide search
+
+** Further notes
+
+On every project compilation Ren'Py builds a file =game/saves/navigation.json=. The file
+contains project meta data as well as lists of symbol definition files/lines grouped by
+type: callables, transforms, labels, screens, defines. VSCode uses the file to support
+definition search and completion.
+
+It should be easy to watch the file using the file notification facility
+(https://www.gnu.org/software/emacs/manual/html_node/elisp/File-Notifications.html) and
+maintain a project-wide symbol index on the Emacs side. This simplifies both project-wide
+symbol completion and definition lookups.
+
+Key VSCode plugin implementation points:
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/completion.ts -
+  completion glue code
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/navigation-data.ts -
+  navigation data as seen by the VSCode plugin
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/src/navigation.ts -
+  additional helper classes
+
+- https://github.com/renpy/vscode-language-renpy/blob/master/grammars/renpy.grammar.ebnf -
+  Ren'py grammar
 
 * Integration
 
 - [ ] Ren'py launcher integration (see https://github.com/elizagamedev/renpy-mode)
 
-- [ ] Suggest for inclusion?
+- [ ] renpy lint + flymake
+
+- [ ] renpy compile
+
+- [ ] Suggest for inclusion to Ren'py itself
+
+- [ ] display images through a popup window or a tooltip
+
+- [ ] display colors / color picker
+
+  suggest rainbow-mode / colorful-mode for this purpose in documentation
+
+- [ ] snippets based on vscode ones
+
+  https://github.com/renpy/vscode-language-renpy/blob/master/snippets/snippets.json
+
+- [ ] block folding (or just outline-minor-mode support?)
+
 
 * Document
 
@@ -55,8 +142,12 @@ inspiration:
 
 - [ ] Contribution
 
+- [ ] document linting, emacs version support, dev process
+
 * Publishing
 
 - [ ] rename to renpy-mode (also in Melpa)
+
+- [ ] update the README
 
 - [ ] reannounce the package (once enough features are ready)
