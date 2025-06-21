@@ -134,6 +134,8 @@ Key VSCode plugin implementation points:
 - [ ] block folding (or just outline-minor-mode support?)
 
 
+- [X] flymake + renpy lint
+
 * Document
 
 - [ ] Existing facilities
