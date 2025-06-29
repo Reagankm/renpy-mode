@@ -44,6 +44,12 @@
   :prefix "renpy-"
   :group 'languages
   :link '(emacs-commentary-link "renpy"))
+
+(defcustom renpy-program "renpy"
+  "Command that invokes Ren'Py."
+  :type 'string
+  :group 'renpy)
+
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.rpym?\\'" . renpy-mode))
@@ -1981,7 +1987,85 @@ Use enclosing keywords to find image name symbol bounds.  Return a (BEG
 			 ;; TODO: Once we know the precise context, other
 			 ;; completion engines should not apply.
 			 :exclusive 'no)))))
+
+;;;; Flymake
 
+(defvar renpy--flymake-regex
+  (rx (or
+       ;; Example: path/to/script.rpy:111 Error message
+       (seq
+	bol
+	(group-n 1 (1+ (not (any ?: "\n"))))
+	":"
+	(group-n 2 (1+ digit))
+	" "
+	(group-n 3 (0+ (not "\n"))))
+       ;; Example: File \"path/to/file/script.rpy\", line 27: expected statement.
+       (seq
+	bol
+	"File "
+	"\""
+	(group-n 1 (1+ (not "\"")))
+	"\", line "
+	(group-n 2 (1+ digit))
+	": "
+	(group-n 3 (0+ (not "\n")))))
+      eol)
+  "Regexp used to catch renpy lint errors/warnings.")
+
+(defvar-local renpy--flymake-proc nil
+  "Flymake process for the current buffer.")
+
+(defun renpy--find-game-directory ()
+  "Find the Ren'Py project root by looking for a \"game/\" directory.
+Return the full path to the \"game/\" directory if found, or nil if not."
+  (and-let* ((dir (locate-dominating-file default-directory "game")))
+    (expand-file-name "game" dir)))
+
+(defun renpy--parse-lint-buffer (buffer)
+  "Parse warning/error messages from BUFFER output for Flymake.
+Return a list of Flymake diagnostics."
+  (with-current-buffer buffer
+    (goto-char (point-min))
+    (let (diags)
+      (while (re-search-forward renpy--flymake-regex nil t)
+        (let ((filename (match-string 1))
+	      (line (string-to-number (match-string 2)))
+	      (msg (match-string 3)))
+          (push (flymake-make-diagnostic
+                 filename (cons line 0) nil :error msg)
+                diags)))
+      diags)))
+
+(defun renpy--flymake-backend (report-fn &rest _args)
+  "Ren'Py Flymake backend.
+REPORT-FN - function used to report diagnostics."
+  (unless (executable-find renpy-program)
+    (error "Cannot find `%s` executable" renpy-program))
+  (if-let* ((root (renpy--find-game-directory)))
+      (progn
+	;; Create a new Flymake subprocess for linting. If a previous process
+	;; exists, kill it first.
+	(when (process-live-p renpy--flymake-proc)
+	  (kill-process renpy--flymake-proc))
+	(setq renpy--flymake-proc
+              (make-process
+               :name "renpy-flymake"
+               :buffer (generate-new-buffer "*renpy-flymake*")
+               :command (list renpy-program root "lint")
+               :noquery t
+               :sentinel
+               (lambda (p _event)
+		 (when (memq (process-status p) '(exit signal))
+		   (unwind-protect
+                       (if (eq p renpy--flymake-proc)
+			   (let ((diags (renpy--parse-lint-buffer (process-buffer p))))
+                             (funcall report-fn diags))
+			 (flymake-log :warning "Obsolete Flymake process %s" p))
+                     (kill-buffer (process-buffer p))))))))
+    (flymake-log
+     :error "Ren'Py project root not found for buffer %s" (buffer-name))
+    (funcall report-fn nil)))
 
 ;;;; Modes.
 
@@ -2059,7 +2143,15 @@ with skeleton expansions for compound statement templates.
   ;; Install the capf function.
   (when renpy-setup-completion
     (add-hook 'completion-at-point-functions
-	      #'renpy-completion-at-point nil t)))
+	      #'renpy-completion-at-point nil t))
+
+  ;; Setup the Flymake backend.
+  (add-hook 'flymake-diagnostic-functions #'renpy--flymake-backend nil t)
+  ;; No need to check buffer state at all as the linter works with all project
+  ;; files.
+  (setq-local flymake-no-changes-timeout nil))
+
+
 
 ;; Not done automatically in Emacs 21 or 22.
 (defcustom renpy-mode-hook nil
