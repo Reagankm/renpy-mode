@@ -113,13 +113,13 @@ Key VSCode plugin implementation points:
 
 * Integration
 
+- [X] Run renpy commands
+
+- [X] flymake + renpy lint
+
 - [ ] Ren'py launcher integration (see https://github.com/elizagamedev/renpy-mode)
 
-- [ ] renpy lint + flymake
-
-- [ ] renpy compile
-
-- [ ] Suggest for inclusion to Ren'py itself
+  - [ ] Suggest for inclusion to Ren'py itself
 
 - [ ] display images through a popup window or a tooltip
 
@@ -132,9 +132,6 @@ Key VSCode plugin implementation points:
   https://github.com/renpy/vscode-language-renpy/blob/master/snippets/snippets.json
 
 - [ ] block folding (or just outline-minor-mode support?)
-
-
-- [X] flymake + renpy lint
 
 * Document
 
