@@ -1,4 +1,4 @@
-;;; renpy-capf-context-test.el ---                        -*- lexical-binding: t; -*-
+;;; renpy-context-test.el ---                        -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
@@ -218,4 +218,4 @@ bla bla |
 bla_bla |
 |")
 
-;;; renpy-capf-context-test.el ends here
+;;; renpy-context-test.el ends here

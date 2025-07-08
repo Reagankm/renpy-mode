@@ -28,7 +28,9 @@
 
 * Xref support
 
-- [ ] file-local symbol lookup
+- [X] file-local symbol lookup
+
+- [X] symbol lookup across open project buffers
 
 - [ ] global symbol lookup
 
@@ -50,6 +52,10 @@ The plan:
 
 - [X] local hide completion
 
+- [X] project buffer completion
+
+- [X] screen completion
+
 - [-] local transform completion
 
   - [X] single transform
@@ -66,15 +72,13 @@ The plan:
 
 - [ ] show/hide/call screen statement full support
 
-- [ ] list all the statements that the mode can support
+- [ ] show layer?
 
-- [ ] screen completion
+- [ ] list all the statements that the mode can support
 
 - [ ] image directory completion
 
 - [ ] keyword completion
-
-- [ ] project buffer completion
 
 - [ ] global completion (navigation.json?)
 
