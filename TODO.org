@@ -28,7 +28,7 @@
 
 * Xref support
 
-- [ ] file-local symbol lookup
+- [X] file-local symbol lookup
 
 - [ ] global symbol lookup
 
