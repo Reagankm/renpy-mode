@@ -2,14 +2,18 @@
 
 ;; Copyright (C) 2003-2013
 ;;   Free Software Foundation, Inc.
-;; Copyright (C) 2018-2019
-;;   Billy Wade
+;; Copyright (C) 2015
+;;   Quil
+;; Copyright (C) 2018-2020
+;;   Trey Merkley
 ;; Copyright (C) 2020
 ;;   Reagan Middlebrook
 ;; Copyright (C) 2023
 ;;   Morgan Willcock
+;; Copyright (C) 2025
+;;   Morgan Willcock, Vladimir Kazanov
 
-;; Author: Dave Love <fx@gnu.org>, PyTom <pytom@bishoujo.us>
+;; Author: Dave Love <fx@gnu.org>
 ;; Keywords: languages
 ;; Maintainer: Reagan Middlebrook <reagankm@gmail.com>
 ;; Package-Requires: ((emacs "27.1"))
@@ -31,7 +35,16 @@
 
 ;;; Commentary:
 
-;; A major mode for Ren'Py based on Dave Love's python.el.
+;; A major mode for editing Ren'Py files.
+
+;; Features: indentation, syntax highlighting for Ren'py and embedded Python,
+;; movement commands, context-sensitive symbol completion, jumping to
+;; definitions with Xref, running renpy CLI subcommands, error highlighting with
+;; Flymake, in-buffer navigation with Imenu, Outline Minor Mode for an overview
+;; of block-defining statements.
+
+;; The codebase is based on Leo Liu's fork of the original Emacs's python.el by
+;; Dave Love.
 
 ;;; Code:
 
@@ -2130,9 +2143,9 @@ it contain spaces."
   "Major mode for editing Renpy files.
 Turns on Font Lock mode unconditionally since it is currently required
 for correct parsing of the source.
-See also `jython-mode', which is actually invoked if the buffer appears to
-contain Jython code.  See also `run-renpy' and associated Renpy mode
-commands for running Renpy under Emacs.
+
+See `renpy-run' and associated Renpy mode commands for running Renpy
+under Emacs.
 
 The Emacs commands which work with `defun's, e.g. \\[beginning-of-defun], deal
 with nested `def' and `class' blocks.  They take the innermost one as
@@ -2149,16 +2162,6 @@ through the possibilities for indentation on the basis of enclosing blocks.
 
 \\[fill-paragraph] fills comments and multi-line strings appropriately, but has no
 effect outside them.
-
-Supports Eldoc mode (only for functions, using a Renpy process),
-Info-Look and Imenu.  In Outline minor mode, `class' and `def'
-lines count as headers.  Symbol completion is available in the
-same way as in the Renpy shell using the `rlcompleter' module
-and this is added to the Hippie Expand functions locally if
-Hippie Expand mode is turned on.  Completion of symbols of the
-form x.y only works if the components are literal
-module/attribute names, not variables.  An abbrev table is set up
-with skeleton expansions for compound statement templates.
 
 \\{renpy-mode-map}"
   :group 'renpy
