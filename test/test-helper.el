@@ -27,13 +27,13 @@ requested.  EXPECTED is the keyword symbol that
 `renpy--completion-context' should return at the point.  EXPECTED can be
 nil for no context."
   (declare (indent 1) (debug t))
-  `(ert-deftest ,(intern (format "test-renpy-completion-context-%s" name)) ()
+  `(ert-deftest ,(intern (format "test-renpy-parse-context-%s" name)) ()
      (with-temp-buffer-str ,code
        (while (search-forward "|" nil t)
 	 (delete-char -1)
 	 (ert-info ((format "Context %s not found on line %d in: \n%s"
 			    ,expected (line-number-at-pos) ,code))
-	   (should (equal (renpy--completion-context) ,expected)))))))
+	   (should (equal (renpy--parse-context) ,expected)))))))
 
 (defmacro renpy-test-capf (name code &optional expected)
   "Create an ERT test called NAME.
@@ -100,7 +100,7 @@ is the expected string within the bounds."
   (unless (eq major-mode 'renpy-mode)
     (user-error "Not in `renpy-mode'"))
   (while t
-    (message "Context: %s"(renpy--completion-context))
+    (message "Context: %s"(renpy--parse-context))
     (read-char)
     (forward-char)))
 

@@ -38,6 +38,9 @@
 (require 'compile)
 (require 'imenu)
 (require 'subr-x)
+(require 'xref)
+(require 'cl-lib)
+(require 'seq)
 
 (defgroup renpy nil
   "Major mode for editing Ren'Py files."
@@ -681,6 +684,12 @@ The criteria are that the line isn't a comment or in string and
 	 (not (renpy-close-block-statement-p t))
 	 ;; Fixme: check this
 	 (not (renpy-open-block-statement-p)))))
+
+(defun renpy--find-game-directory ()
+  "Find the Ren'Py project root by looking for a \"game/\" directory.
+Return the full path to the \"game/\" directory if found, or nil if not."
+  (and-let* ((dir (locate-dominating-file default-directory "game")))
+    (expand-file-name "game" dir)))
 
 ;;;; Indentation.
 
@@ -1539,12 +1548,7 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
   (renpy-end-of-block)
   (exchange-point-and-mark))
 
-;;;; Completion
-
-(defcustom renpy-setup-completion t
-  "Non-nil means Renpy mode sets up completion for the buffer."
-  :type 'boolean
-  :group 'renpy)
+;;;; Context parsing
 
 (defconst renpy--python-header-re
   (rx bol (* space)
@@ -1589,7 +1593,7 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
     (looking-at-p (rx (zero-or-more space)
 		      "$"))))
 
-(defun renpy--completion-context-p ()
+(defun renpy--parse-context-p ()
   "Return non-nil if the point is at a point suitable for completion."
   (not (or
 	;; Literals.
@@ -1601,7 +1605,7 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
 	;; Check enclosing blocks.
 	(renpy--python-block-p))))
 
-(defconst renpy--completion-keywords
+(defconst renpy--parse-keywords
   '("call" "jump" "show" "scene" "hide" "at" "as" "expression" "from"
     "zorder" "onlayer" "behind" "screen" "layer" "with")
   "A list of keywords that can be around a completion context point.")
@@ -1613,7 +1617,7 @@ become symbol `comma'.  Other tokens are returned as strings.  Parsing
 stops at line beginning and the function returns nil.
 
 The function assumes correct call context as defined by
-`renpy--completion-context-p'"
+`renpy--parse-context-p'"
   (let* (tok-string
 	 (tok-beg (progn (skip-syntax-backward " ")
 			 (point)))
@@ -1630,7 +1634,7 @@ The function assumes correct call context as defined by
 		    (point))))
     (setq tok-string (buffer-substring-no-properties tok-beg tok-end))
     (cond
-     ((member tok-string renpy--completion-keywords)
+     ((member tok-string renpy--parse-keywords)
       (intern tok-string))
      ((equal tok-string ",") 'comma)
      ;; (string-empty-p) not available in Emacs 27.1.
@@ -1657,7 +1661,7 @@ parse or the point context is invalid."
 		 (eq prev-pos pos)
 		 (save-excursion
 		   (skip-syntax-forward " ")
-		   (looking-at-p (regexp-opt renpy--completion-keywords)))))
+		   (looking-at-p (regexp-opt renpy--parse-keywords 'symbols)))))
       (condition-case nil
 	  (forward-sexp)
 	(scan-error))
@@ -1667,10 +1671,10 @@ parse or the point context is invalid."
 (defun renpy--skip-to-keyword-backward (&optional keywords)
   "Move the point backwards to the first known keyword word or bol.
 KEYWORDS is a list of keyword strings to skip to or
-`renpy--completion-keywords'."
+`renpy--parse-keywords'."
   (let (prev-pos
 	(pos (point))
-	(keywords (or keywords renpy--completion-keywords)))
+	(keywords (or keywords renpy--parse-keywords)))
     (while
 	(not (or (bolp)
 		 (eq prev-pos pos)
@@ -1734,7 +1738,7 @@ possibly a comma-separated list of strings."
        (or (eq prev prev-keyword)
 	   (renpy--comma-sep-p prev))))
 
-(defun renpy--completion-context-dispatch (tree)
+(defun renpy--parse-context-dispatch (tree)
   "Pattern match against the TREE and return a completion context keyword."
   ;; TODO: Maybe a DSL would be convenient to make adding contexts easy.
   ;; :image-tag is not handled for now.  Collection is easy to add.  Note that
@@ -1778,13 +1782,13 @@ possibly a comma-separated list of strings."
       ;; With statement.
       ('with (and (null rest) :transition)))))
 
-(defun renpy--completion-context ()
+(defun renpy--parse-context ()
   "Return the completion context keyword symbol at point."
   ;; TODO: Currently the context is defined as "not string, comment, python",
   ;; which works for now.  In the future the code below should begin taking
   ;; Ren'py sub-languages into account.  What this practically means that
   ;; pattern lists will depend on the language defined by a parent block.
-  (and (renpy--completion-context-p)
+  (and (renpy--parse-context-p)
        (save-excursion
 	 ;; Flush the existing prefix.
 	 ;;
@@ -1802,16 +1806,136 @@ possibly a comma-separated list of strings."
 	 (thread-first
 	   (renpy--parse-backwards-line)
 	   (renpy--tokens-to-tree)
-	   (renpy--completion-context-dispatch)))))
+	   (renpy--parse-context-dispatch)))))
+
+;;;; Parse symbol at point
+
+(defun renpy--find-symbol-bounds (syntax-classes)
+  "Find the beginning and end of a symbol using SYNTAX-CLASSES.
+Return a (BEG . END) pair."
+  (cons (save-excursion
+          (skip-syntax-backward syntax-classes)
+          (point))
+	(save-excursion
+          (skip-syntax-forward syntax-classes)
+          (point))))
+
+(defun renpy--find-label-bounds ()
+  "Find the bounds of a label name symbol at point."
+  ;; Labels are words + symbol constituents + punctuation.
+  (renpy--find-symbol-bounds "w_."))
+
+;;;;; Image bounds
+
+(defun renpy--find-image-bounds ()
+  "Find the bounds of a label name symbol at point.
+Use enclosing keywords to find image name symbol bounds."
+  ;; Images are whitespace-separated words + symbol constituents + punctuation.
+  (cons (save-excursion
+          ;; NOTE: The list of keywords below should take all
+          ;; contexts expecting images into account.
+          (renpy--skip-to-keyword-backward '("show" "hide" "scene"))
+          (point))
+	(save-excursion
+          (renpy--skip-to-keyword-forward)
+          (point))))
+
+;;;;; Transform bounds
+
+(defun renpy--find-transform-bounds ()
+  "Find the bounds of a transform name symbol at point."
+  ;; Transforms are words + symbol constituents.
+  (renpy--find-symbol-bounds "w_"))
+
+;;;;; Transition bounds
+
+(defun renpy--find-transition-bounds ()
+  "Find the bounds of a transition name symbol at point."
+  ;; Transitions are words + symbol constituents.
+  (renpy--find-symbol-bounds "w_"))
+
+;;;;; Screen bounds
+
+(defun renpy--find-screen-bounds ()
+  "Find the bounds of a screen name symbol at point."
+  ;; Screens are words + symbol constituents.
+  (renpy--find-symbol-bounds "w_"))
+
+;;;;; Context dispatch
+
+(defun renpy--context-to-bounds (context)
+  "Find the bounds of the symbol at point based on the CONTEXT symbol."
+  (pcase context
+    (:label (renpy--find-label-bounds))
+    (:image (renpy--find-image-bounds))
+    (:transform (renpy--find-transform-bounds))
+    (:transition (renpy--find-transition-bounds))
+    (:screen (renpy--find-screen-bounds))))
+
+;;;; Symbol collection
+
+;; Symbols for completion and definition lookup purposes are stored as (NAME
+;; . POSITION) pairs.  NAME is a symbol name string, POSITION is either a buffer
+;; position, or nil for symbols with unknown location.  Every symbol also has a
+;; kind: `label', `image' and others.
+;;
+;; Symbols for completion and definition lookup purposes are collected using a
+;; function receiving a single argument (see the renpy--collect-* family of
+;; function).  The argument is ignored.  Collecting function call results are
+;; usually cached, unless the result is a fixed list.
+;;
+;; A cache indexed by symbol kind is available through the
+;; `renpy--collect-cache' buffer-local variable.
+
+(defcustom renpy-collect-across-buffers t
+  "Non-nil to collect symbols in open buffers of the same \"game\" dir.
+nil to return a list containing only the current buffer."
+  :group 'renpy
+  :type 'boolean)
 
 (defvar-local renpy--collect-cache nil
-  "Alist of (KIND TICK SYMBOL) for cached Ren’Py completion in this buffer.")
+  "Alist of (KIND TICK DATA) for cached Ren’Py completion in this buffer.
+KIND is a symbol representing a kind of data cached.
+
+TICK is a buffer modification counter (see `buffer-chars-modified-tick')
+used for cache invalidation.
+
+DATA is a list of symbols representing KIND cache for the buffer.")
+
+(defun renpy--buffers-to-search ()
+  "Return a list of open buffers visiting files under the same \"game/\" dir.
+If the current buffer has no associated file or no dominating \"game/\"
+directory can be found, return just `current-buffer'."
+  (if-let ((root (renpy--find-game-directory)))
+      (seq-filter
+       (lambda (buf)
+         (when-let ((file (buffer-file-name buf)))
+           (string-prefix-p root file t)))
+       (buffer-list))
+    (list (current-buffer))))
+
+(defun renpy--make-open-buffer-collector (buffer-collector)
+  "Return a new collector that combines symbols from all game buffers.
+BUFFER-COLLECTOR is the existing buffer collecting function (e.g.
+`renpy--collect-labels-cached')."
+  (lambda (_)
+    (if (not renpy-collect-across-buffers)
+        ;; Fast path - only current buffer wanted.
+        (funcall buffer-collector nil)
+      ;; Merge results from all buffers in the game/ tree.
+      (apply #'append
+	     (mapcar
+              (lambda (buf)
+		(with-current-buffer buf
+		  (funcall buffer-collector nil)))
+              (renpy--buffers-to-search))))))
 
 (defun renpy--collect-cached (kind collector-function)
   "Return cached DATA for KIND, or call COLLECTOR-FUNCTION to rebuild it.
-KIND is symbol representing the kind of cached data.  COLLECTOR-FUNCTION
-is a function that scans the buffer and returns a list of symbols to be
-cached."
+KIND is symbol representing the kind of cached data.
+
+COLLECTOR-FUNCTION is a function that scans the buffer and returns a
+list of symbols to be cached."
   (let* ((tick   (buffer-chars-modified-tick))
          (entry  (assq kind renpy--collect-cache))
          (entry-tick  (nth 1 entry))
@@ -1824,26 +1948,37 @@ cached."
                     (assq-delete-all kind renpy--collect-cache)))
         fresh))))
 
-(defconst renpy--label-definition-re
-  (renpy-rx label-keyword (1+ space) (group label-name))
-  "Regexp for looking up label definitions.")
-
-(defun renpy--collect-labels-cached (_)
-  "Cached version of `renpy--collect-labels'.
-PREFIX is a completion text to be passed into the collecting function."
-  (renpy--collect-cached 'labels #'renpy--collect-labels))
-
-(defun renpy--collect-labels (_)
-  "Return all label names in the current buffer."
+(defun renpy--collect-regexp (regex)
+  "Return a (NAME BUFFER POSITION) triplet describing a symbol.
+REGEX - a regexp to use for collection.
+NAME - name of the symbol collected.
+BUFFER - buffer where the symbol was found.
+POSITION - point where the symbol was defined."
   (save-restriction
     (widen)
     (let (results)
       (save-excursion
 	(goto-char (point-min))
-	(while (re-search-forward renpy--label-definition-re nil t)
-	  (let ((str (match-string-no-properties 1)))
-            (push str results))))
+	(while (re-search-forward regex nil t)
+	  (let ((str (match-string-no-properties 1))
+		(buf (current-buffer))
+		(pos (match-beginning 0)))
+            (push (list str buf pos) results))))
       results)))
+
+;;;;; Label symbol collection
+
+(defconst renpy--label-definition-re
+  (renpy-rx label-keyword (1+ space) (group label-name))
+  "Regexp for looking up label definitions.")
+
+(defun renpy--collect-labels-cached (_)
+  "Return all label names in the current buffer."
+  (renpy--collect-cached
+   'labels
+   (lambda (_) (renpy--collect-regexp renpy--label-definition-re))))
+
+;;;;; Image symbol collection
 
 (defconst renpy--image-definition-re
   (renpy-rx image-keyword (1+ space)
@@ -1853,59 +1988,45 @@ PREFIX is a completion text to be passed into the collecting function."
   "Regexp for looking up image definitions.")
 
 (defun renpy--collect-images-cached (_)
-  "Cached version of `renpy--collect-images'.
-PREFIX is a completion text to be passed into the collecting function."
-  (renpy--collect-cached 'images #'renpy--collect-images))
-
-(defun renpy--collect-images (_)
   "Return all image names in the current buffer."
-  (save-restriction
-    (widen)
-    (let (results)
-      (save-excursion
-	(goto-char (point-min))
-	(while (re-search-forward renpy--image-definition-re nil t)
-          (let ((str (match-string-no-properties 1)))
-            (push str results))))
-      results)))
+  (renpy--collect-cached
+   'images
+   (lambda (_) (renpy--collect-regexp renpy--image-definition-re))))
+
+;;;;; Transform symbol collection
 
 (defconst renpy--transform-definition-re
   (renpy-rx transform-keyword (1+ space) (group name))
   "Regexp for looking up transform definitions.")
 
 (defun renpy--collect-transforms-cached (_)
-  "Cached version of `renpy--collect-transforms'.
-PREFIX is a completion text to be passed into the collecting function."
-  (renpy--collect-cached 'transforms #'renpy--collect-transforms))
-
-(defun renpy--collect-transforms (_)
   "Return all transform names in the current buffer."
-  (save-restriction
-    (widen)
-    (let (results)
-      (save-excursion
-	(goto-char (point-min))
-	(while (re-search-forward renpy--transform-definition-re nil t)
-          (let ((str (match-string-no-properties 1)))
-            (push str results))))
-      results)))
+  (renpy--collect-cached
+   'transforms
+   (lambda (_) (renpy--collect-regexp renpy--transform-definition-re))))
+
+;;;;; Transition symbol collection
 
 ;; TODO: Also add transition classes?
 ;; Extracted from https://www.renpy.org/doc/html/transitions.html.
 (defconst renpy--predefined-transitions
   '("None" "blinds" "dissolve" "ease" "easeinbottom" "easeinleft" "easeinright"
     "easeintop" "easeoutbottom" "easeoutleft" "easeoutright" "easeouttop" "fade"
-    "hpunch" "irisin" "move" "moveinbottom" "moveinleft" "moveinright" "moveintop"
-    "moveoutbottom" "moveoutleft" "moveoutright" "moveouttop" "pixellate"
-    "pushdown" "pushleft" "pushright" "pushup" "slideawaydown" "slideawayleft"
-    "slideawayright" "slideawayup" "slidedown" "slideleft" "slideright"
-    "slideup" "squares" "vpunch" "wipedown" "wipeleft" "wiperight" "wipeup"
-    "zoomin" "zoominout" "zoomout")
+    "hpunch" "irisin" "move" "moveinbottom" "moveinleft" "moveinright"
+    "moveintop" "moveoutbottom" "moveoutleft" "moveoutright" "moveouttop"
+    "pixellate" "pushdown" "pushleft" "pushright" "pushup" "slideawaydown"
+    "slideawayleft" "slideawayright" "slideawayup" "slidedown" "slideleft"
+    "slideright" "slideup" "squares" "vpunch" "wipedown" "wipeleft" "wiperight"
+    "wipeup" "zoomin" "zoominout" "zoomout")
   "A list of predefined transitions.")
 
 (defun renpy--collect-transitions (_)
   "Return predefined transitions."
-  renpy--predefined-transitions)
+  ;; Predefined transitions do not have positions so turn them into (NAME . nil)
+  ;; pairs.
+  (mapcar #'list renpy--predefined-transitions))
+
+;;;;; Screen symbol collection
 
 (defconst renpy--screen-definition-re
   (renpy-rx screen-keyword (1+ space)
@@ -1915,79 +2036,129 @@ PREFIX is a completion text to be passed into the collecting function."
 
 (defun renpy--collect-screens (_)
   "Return all screen names in the current buffer."
-  (save-restriction
-    (widen)
-    (let (results)
-      (save-excursion
-	(goto-char (point-min))
-	(while (re-search-forward renpy--screen-definition-re nil t)
-          (let ((str (match-string-no-properties 1)))
-            (push str results))))
-      results)))
+  (renpy--collect-regexp renpy--screen-definition-re))
 
 (defun renpy--collect-screens-cached (_)
   "Cached version of `renpy--collect-images'.
 PREFIX is a completion text to be passed into the collecting function."
   (renpy--collect-cached 'screens #'renpy--collect-screens))
 
-(defun renpy--find-symbol-bounds (syntax-classes)
-  "Find the beginning and end of a symbol using SYNTAX-CLASSES.
-Return a (BEG . END) pair."
-  (cons (save-excursion
-          (skip-syntax-backward syntax-classes)
-          (point))
-	(save-excursion
-          (skip-syntax-forward syntax-classes)
-          (point))))
+;;;;; All symbol collection
 
-(defun renpy--find-image-bounds ()
-  "Find the beginning and end of an image name.
-Use enclosing keywords to find image name symbol bounds.  Return a (BEG
-. END) pair."
-  (cons (save-excursion
-          ;; NOTE: The list of keywords below should take all
-          ;; contexts expecting images into account.
-          (renpy--skip-to-keyword-backward '("show" "hide" "scene"))
-          (point))
-	(save-excursion
-          (renpy--skip-to-keyword-forward)
-          (point))))
+(defun renpy--collect-all (_)
+  "Return all available symbols."
+  (append (funcall (renpy--make-open-buffer-collector
+		    #'renpy--collect-labels-cached)
+		   nil)
+	  (funcall (renpy--make-open-buffer-collector
+		    #'renpy--collect-images-cached)
+		   nil)
+	  (funcall (renpy--make-open-buffer-collector
+		    #'renpy--collect-transforms-cached)
+		   nil)
+	  ;; Transitions are static, no point in collecting across all buffers.
+	  (renpy--collect-transitions nil)
+	  (funcall (renpy--make-open-buffer-collector
+		    #'renpy--collect-screens-cached)
+		   nil)))
+
+;;;;; Context dispatch
+
+(defun renpy--context-to-collector (context)
+  "Find the symbol collecting function based on the CONTEXT symbol."
+  (pcase context
+    (:label (renpy--make-open-buffer-collector
+	     #'renpy--collect-labels-cached))
+    (:image (renpy--make-open-buffer-collector
+	     #'renpy--collect-images-cached))
+    (:transform (renpy--make-open-buffer-collector
+		 #'renpy--collect-transforms-cached))
+    ;; Transitions are static.
+    (:transition #'renpy--collect-transitions)
+    (:screen (renpy--make-open-buffer-collector
+	      #'renpy--collect-screens-cached))))
+
+;;;; Completion
+
+(defcustom renpy-setup-completion t
+  "Non-nil means Renpy mode sets up completion for the buffer."
+  :type 'boolean
+  :group 'renpy)
 
 (defun renpy-completion-at-point ()
   "Provide completion data for the symbol at point in Ren'Py buffers."
   (save-restriction
     (widen)
-    (let (collect bounds)
-      (pcase (renpy--completion-context)
-	;; Given a recognized context, we know:
-	;; 1. Expected structure of the partially completed prefix.
-	;; 2. A function to use for candidate lookup.
-	(:label
-	 ;; Labels are words + symbol constituents + punctuation.
-	 (setq bounds (renpy--find-symbol-bounds "w_.")
-               collect #'renpy--collect-labels-cached))
-	(:image
-	 ;; Images are whitespace-separated words + symbol constituents +
-	 ;; punctuation.
-	 (setq bounds (renpy--find-image-bounds)
-               collect #'renpy--collect-images-cached))
-	(:transform
-	 ;; Transforms are words + symbol constituents.
-	 (setq bounds (renpy--find-symbol-bounds "w_")
-               collect #'renpy--collect-transforms-cached))
-	(:transition
-	 ;; Transitions are words + symbol constituents.
-	 (setq bounds (renpy--find-symbol-bounds "w_")
-               collect #'renpy--collect-transitions))
-	(:screen
-	 ;; Screens are words + symbol constituents.
-	 (setq bounds (renpy--find-symbol-bounds "w_")
-               collect #'renpy--collect-screens-cached)))
-      (and collect (list (car bounds) (cdr bounds)
-			 (completion-table-dynamic collect)
-			 ;; TODO: Once we know the precise context, other
-			 ;; completion engines should not apply.
-			 :exclusive 'no)))))
+    ;; Given a recognized context, we know:
+    ;; 1. Expected structure of the partially completed prefix.
+    ;; 2. A function to use for candidate lookup.
+    (when-let* ((context (renpy--parse-context))
+		(bounds (renpy--context-to-bounds context))
+		(collector (renpy--context-to-collector context)))
+      (list (car bounds) (cdr bounds)
+	    (completion-table-dynamic collector)
+	    ;; TODO: Once we know the precise context, other
+	    ;; completion engines should not apply.
+	    :exclusive 'no))))
+
+;;;; Xref
+
+;; TODO: Find symbol references in a context-aware fashion.
+
+(defun renpy--xref-backend ()
+  "An Xref backend used by `renpy-mode'."
+  'renpy)
+
+(defun renpy--xref-symbol-at-point ()
+  "Return symbol name at point, context-aware."
+  ;; Try to read a symbol in a context-aware fashion.  Fallback to a generic
+  ;; symbol lookup otherwise.
+  (if-let* ((bounds (renpy--context-to-bounds (renpy--parse-context))))
+      (buffer-substring-no-properties (car bounds) (cdr bounds))
+    (thing-at-point 'symbol 'no-properties)))
+
+(defun renpy--xref-definitions-for (identifier collector)
+  "Return all definitions for IDENTIFIER using the COLLECTOR function.
+COLLECTOR must return a list of (NAME BUF POS) cons cells where BUF and
+POS are non-nil."
+  (cl-loop for name-loc in (funcall collector nil)
+           when (and (cdr name-loc)
+                     (string= (car name-loc) identifier))
+           collect name-loc))
+
+(defun renpy--xref-make (name-loc)
+  "Return an xref for a NAME-LOC triplet."
+  (xref-make (nth 0 name-loc)
+	     (xref-make-buffer-location
+	      (nth 1 name-loc)
+	      (nth 2 name-loc))))
+
+(cl-defmethod xref-backend-identifier-at-point ((_backend (eql renpy)))
+  "Identify symbol at point for renpy xref."
+  (renpy--xref-symbol-at-point))
+
+(cl-defmethod xref-backend-identifier-completion-table ((_backend (eql renpy)))
+  "Return an identifier completion table.
+Only identifiers with known positions will be listed."
+  (let ((buf (current-buffer)))
+    ;; The additional wrapper lambda is necessary because the table is used
+    ;; outside of the `renpy-mode' buffer context.
+    (completion-table-dynamic
+     (lambda (_)
+       (with-current-buffer buf
+         ;; Do not show symbols that have no location specified.
+         (cl-loop for name-loc in (renpy--collect-all nil)
+                  when (cdr name-loc)
+                  collect name-loc))))))
+
+(cl-defmethod xref-backend-definitions ((_backend (eql renpy)) identifier)
+  "Find definition(s) of IDENTIFIER at point, context-aware.
+If the context is unclear then return identifiers of all kinds."
+  (let* ((collector (or (renpy--context-to-collector
+			 (renpy--parse-context))
+			#'renpy--collect-all)))
+    (mapcar #'renpy--xref-make
+	    (renpy--xref-definitions-for identifier collector))))
 
 ;;;; Flymake
 
@@ -2018,12 +2189,6 @@ Use enclosing keywords to find image name symbol bounds.  Return a (BEG
 
 (defvar-local renpy--flymake-proc nil
   "Flymake process for the current buffer.")
-
-(defun renpy--find-game-directory ()
-  "Find the Ren'Py project root by looking for a \"game/\" directory.
-Return the full path to the \"game/\" directory if found, or nil if not."
-  (and-let* ((dir (locate-dominating-file default-directory "game")))
-    (expand-file-name "game" dir)))
 
 (defun renpy--parse-lint-buffer (buffer)
   "Parse warning/error messages from BUFFER output for Flymake.
@@ -2204,6 +2369,10 @@ with skeleton expansions for compound statement templates.
 
   ;; Setup the Flymake backend.
   (add-hook 'flymake-diagnostic-functions #'renpy--flymake-backend nil t)
+
+  ;; Setup the Xref backend
+  (add-hook 'xref-backend-functions #'renpy--xref-backend nil 'local)
+
   ;; No need to check buffer state at all as the linter works with all project
   ;; files.
   (setq-local flymake-no-changes-timeout nil))
