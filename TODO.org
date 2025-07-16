@@ -26,6 +26,14 @@
 
 - [ ] automated testing with multiple emacs versions
 
+* Movement
+
+- [X] document key-bindings/movement in general
+
+- [ ] rework keybindings to be consistent with more popular modes
+
+- [ ] beginning/end of defun should handle top-level statement block?
+
 * Xref support
 
 - [X] file-local symbol lookup
@@ -85,6 +93,8 @@ The plan:
 - [ ] Sqlite for symbol cache?
 
 - [ ] Filenotify for updates?
+
+- [ ] Eldoc?
 
 - [ ] make the completion/xref backend customizable: buffer-local, open buffers,
   project-wide search
