@@ -1,17 +1,46 @@
 #+TITLE: Ren'Py mode
 
-PyTom's old major mode for Ren'Py, previously maintained by treymerkley, now maintained by me.
+A major mode for editing Ren'Py files.
 
 ** Installation
 
   Either install within Emacs directly from MELPA or:
+
   * Download/clone this repo to your desired location.
+
   * In Emacs, use the command =M-x package-install-file= and point it to the renpy.el file location
-    * This will install it to your =~/.emacs.d/elpa/= directory (or your custom location if you've manually set a different =package-user-dir= in Emacs)
+
+    * This will install it to your =~/.emacs.d/elpa/= directory (or your custom location
+      if you've manually set a different =package-user-dir= in Emacs)
+
   * In your .emacs file, add =(require 'renpy)=
+
+** Features
+
+ - Movement, indentation and syntax highlighting for Ren'py and embedded Python
+
+ - Outline Minor Mode for an overview of block-defining statements.
+
+ - In-buffer navigation with Imenu
+
+ - Context-sensitive symbol completion
+
+ - Jumping to symbol definitions with Xref
+
+ - Compiling, running, linting from within Emacs
+
+ - Running renpy CLI subcommands
+
+ - Error highlighting with Flymake
 
 ** History
 
-Originally this was PyTom's major mode for Ren'Py but he no longer uses Emacs or Ren'Py anymore. Then maintenance was taken over by Trey Merkley @treymerkley but he was looking for someone else to take it on who was more familiar with Elisp. So now it is maintained by me.
+The mode is based on Leo Liu's fork of the original Emacs's Python mode (python.el) by
+Dave Love.
+
+In its Ren'py incarnation the mode was imported to Github in 2015 by Quil (@robotlolita),
+then taken over by Trey Merkley (@treymerkley), followed by Reagan Middlebrook
+(@reagankm).  A major refresh of the code was made by Morgan Willcock (@morganwillcock) in
+2023, followed by features added by Vladimir Kazanov in 2025.
 
 Come at me, parentheses. I dare you.
