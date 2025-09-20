@@ -2,14 +2,18 @@
 
 ;; Copyright (C) 2003-2013
 ;;   Free Software Foundation, Inc.
-;; Copyright (C) 2018-2019
-;;   Billy Wade
+;; Copyright (C) 2015
+;;   Quil
+;; Copyright (C) 2018-2020
+;;   Trey Merkley
 ;; Copyright (C) 2020
 ;;   Reagan Middlebrook
 ;; Copyright (C) 2023
 ;;   Morgan Willcock
+;; Copyright (C) 2025
+;;   Morgan Willcock, Vladimir Kazanov
 
-;; Author: Dave Love <fx@gnu.org>, PyTom <pytom@bishoujo.us>
+;; Author: Dave Love <fx@gnu.org>
 ;; Keywords: languages
 ;; Maintainer: Reagan Middlebrook <reagankm@gmail.com>
 ;; Package-Requires: ((emacs "27.1"))
@@ -31,7 +35,16 @@
 
 ;;; Commentary:
 
-;; A major mode for Ren'Py based on Dave Love's python.el.
+;; A major mode for editing Ren'Py files.
+
+;; Features: indentation, syntax highlighting for Ren'py and embedded Python,
+;; movement commands, context-sensitive symbol completion, jumping to
+;; definitions with Xref, running renpy CLI subcommands, error highlighting with
+;; Flymake, in-buffer navigation with Imenu, Outline Minor Mode for an overview
+;; of block-defining statements.
+
+;; The codebase is based on Leo Liu's fork of the original Emacs's python.el by
+;; Dave Love.
 
 ;;; Code:
 
@@ -499,7 +512,7 @@ Used for syntactic keywords.  N is the match number (1, 2 or 3)."
 ;; it -- we basically only mess with a few normally-symbol characters.
 
 ;; (defun renpy-font-lock-syntactic-face-function (state)
-;;   "`font-lock-syntactic-face-function' for Renpy mode.
+;;   "`font-lock-syntactic-face-function' for Ren'Py mode.
 ;; Returns the string or comment face as usual, with side effect of putting
 ;; a `syntax-table' property on the inside of the string or comment which is
 ;; the standard syntax table."
@@ -554,7 +567,7 @@ Used for syntactic keywords.  N is the match number (1, 2 or 3)."
     map))
 
 ;; Fixme: add toolbar stuff for useful things like symbol help, send
-;; region, at least.  (Shouldn't be specific to Renpy, obviously.)
+;; region, at least.  (Shouldn't be specific to Ren'Py, obviously.)
 ;; eric has items including: (un)indent, (un)comment, restart script,
 ;; run script, debug script; also things for profiling, unit testing.
 
@@ -580,7 +593,7 @@ Used for syntactic keywords.  N is the match number (1, 2 or 3)."
 ;;;; Utility stuff
 
 (defsubst renpy-in-string-comment ()
-  "Return non-nil if point is in a Renpy literal (a comment or string)."
+  "Return non-nil if point is in a Ren'Py literal (a comment or string)."
   ;; We don't need to save the match data.
   (nth 8 (syntax-ppss)))
 
@@ -694,14 +707,14 @@ Return the full path to the \"game/\" directory if found, or nil if not."
 ;;;; Indentation.
 
 (defcustom renpy-indent 4
-  "Number of columns for a unit of indentation in Renpy mode.
+  "Number of columns for a unit of indentation in Ren'Py mode.
 See also `\\[renpy-guess-indent]'"
   :group 'renpy
   :type 'integer)
 (put 'renpy-indent 'safe-local-variable 'integerp)
 
 (defcustom renpy-guess-indent nil
-  "Non-nil means Renpy mode guesses `renpy-indent' for the buffer."
+  "Non-nil means Ren'Py mode guesses `renpy-indent' for the buffer."
   :type 'boolean
   :group 'renpy)
 
@@ -772,7 +785,7 @@ Set `renpy-indent' locally to the value guessed."
   "Internal use.")
 
 (defun renpy-calculate-indentation ()
-  "Calculate Renpy indentation for line at point."
+  "Calculate Ren'Py indentation for line at point."
   (setq renpy-indent-list nil
 	renpy-indent-list-length 1)
   (save-excursion
@@ -1001,7 +1014,7 @@ indentation if it is valid, i.e. one of the positions returned by
 	  (goto-char (- (point-max) pos))))))
 
 (defun renpy-indent-line ()
-  "Indent current line as Renpy code.
+  "Indent current line as Ren'Py code.
 When invoked via `indent-for-tab-command', cycle through possible
 indentations for current line.  The cycle is broken by a command
 different from `indent-for-tab-command', i.e. successive TABs do
@@ -1025,7 +1038,7 @@ the cycling."
     (setq renpy-indent-index (1- renpy-indent-list-length))))
 
 (defun renpy-indent-region (start end)
-  "`indent-region-function' for Renpy.
+  "`indent-region-function' for Ren'Py.
 START and END specify the region to indent.  Validly-indented
 lines are left alone, i.e. they are not indented to another valid
 position."
@@ -1057,7 +1070,7 @@ blank line indented to where it would close a block."
 ;; block, statement, depending on context.
 
 (defun renpy-beginning-of-defun ()
-  "`beginning-of-defun-function' for Renpy.
+  "`beginning-of-defun-function' for Ren'Py.
 Finds beginning of innermost nested class or method definition.
 Returns the name of the definition found at the end, or nil if
 reached start of buffer."
@@ -1090,7 +1103,7 @@ reached start of buffer."
     found))
 
 (defun renpy-end-of-defun ()
-  "`end-of-defun-function' for Renpy.
+  "`end-of-defun-function' for Ren'Py.
 Finds end of innermost nested class or method definition."
   (let ((orig (point))
 	(pattern (rx line-start (0+ space) (or "def" "class") space)))
@@ -1568,14 +1581,14 @@ Uses `renpy-beginning-of-block', `renpy-end-of-block'."
     (let (python-p done)
       ;; Search for lines that end with ':' and aren't comments/blank.  3 cases
       ;; possible:
-      ;; 1. Renpy statement - the block is *not* Python.
+      ;; 1. Ren'Py statement - the block is *not* Python.
       ;; 2. Python block statement - the block *is* Python.
       ;; 3. Usual block-defining statement - keep looking.
       (while (not (or done (bobp)))
 	(if (not (renpy-beginning-of-block))
 	    (setq done t)
           (cond
-	   ;; Renpy statement found, done and no Python found.
+	   ;; Ren'Py statement found, done and no Python found.
            ((looking-at-p renpy--renpy-header-re)
             (setq done t))
 	   ;; Python statement found, done.
@@ -2080,7 +2093,7 @@ PREFIX is a completion text to be passed into the collecting function."
 ;;;; Completion
 
 (defcustom renpy-setup-completion t
-  "Non-nil means Renpy mode sets up completion for the buffer."
+  "Non-nil means Ren'Py mode sets up completion for the buffer."
   :type 'boolean
   :group 'renpy)
 
@@ -2234,7 +2247,7 @@ REPORT-FN - function used to report diagnostics."
      :error "Ren'Py project root not found for buffer %s" (buffer-name))
     (funcall report-fn nil)))
 
-;;;; Run Renpy
+;;;; Run Ren'Py
 
 (add-to-list 'compilation-error-regexp-alist-alist
 	     `(renpy ,renpy--error-regex 1 2))
@@ -2292,12 +2305,10 @@ it contain spaces."
 
 ;;;###autoload
 (define-derived-mode renpy-mode prog-mode "Ren'Py"
-  "Major mode for editing Renpy files.
-Turns on Font Lock mode unconditionally since it is currently required
-for correct parsing of the source.
-See also `jython-mode', which is actually invoked if the buffer appears to
-contain Jython code.  See also `run-renpy' and associated Renpy mode
-commands for running Renpy under Emacs.
+  "Major mode for editing Ren'Py files.
+
+See `renpy-run' and associated Ren'Py mode commands for running Ren'Py
+under Emacs.
 
 The Emacs commands which work with `defun's, e.g. \\[beginning-of-defun], deal
 with nested `def' and `class' blocks.  They take the innermost one as
@@ -2314,16 +2325,6 @@ through the possibilities for indentation on the basis of enclosing blocks.
 
 \\[fill-paragraph] fills comments and multi-line strings appropriately, but has no
 effect outside them.
-
-Supports Eldoc mode (only for functions, using a Renpy process),
-Info-Look and Imenu.  In Outline minor mode, `class' and `def'
-lines count as headers.  Symbol completion is available in the
-same way as in the Renpy shell using the `rlcompleter' module
-and this is added to the Hippie Expand functions locally if
-Hippie Expand mode is turned on.  Completion of symbols of the
-form x.y only works if the components are literal
-module/attribute names, not variables.  An abbrev table is set up
-with skeleton expansions for compound statement templates.
 
 \\{renpy-mode-map}"
   :group 'renpy
@@ -2380,7 +2381,7 @@ with skeleton expansions for compound statement templates.
 
 ;; Not done automatically in Emacs 21 or 22.
 (defcustom renpy-mode-hook nil
-  "Hook run when entering Renpy mode."
+  "Hook run when entering Ren'Py mode."
   :group 'renpy
   :type 'hook)
 (custom-add-option 'renpy-mode-hook 'imenu-add-menubar-index)
