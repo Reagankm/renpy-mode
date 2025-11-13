@@ -131,13 +131,9 @@ Key VSCode plugin implementation points:
 
 - [X] flymake + renpy lint
 
-- [ ] Run the renpy launcher
+- [X] Run the renpy launcher
 
-- [-] Ren'py launcher integration (see https://github.com/elizagamedev/renpy-mode)
-
-  - [X] Import
-
-  - [ ] Suggest for inclusion to Ren'py itself?
+- [X] Ren'py launcher integration (see https://github.com/elizagamedev/renpy-mode)
 
 - [ ] Warp to line
 
@@ -156,19 +152,25 @@ Key VSCode plugin implementation points:
 
   https://github.com/renpy/vscode-language-renpy/blob/master/snippets/snippets.json
 
-- [ ] block folding (or just outline-minor-mode support?)
+- [ ] block folding, hideshow (or just outline-minor-mode support?)
+
+- [X] Add emacs.edit.py to the package
 
 - [X] new python keywords: case/match
 
 * Document
 
+- [X] More on completion, xref, symbol lookup in general
+
 - [ ] Existing facilities
 
 - [ ] Launcher integration
 
+  env RENPY_EDIT_PY=/home/vkazanov/projects-my/renpy-mode/emacs.edit.py renpy
+
 - [ ] Contribution
 
-- [ ] document linting, emacs version support, dev process
+- [ ] Document linting, emacs version support, dev process
 
 * Publishing
 :PROPERTIES:
@@ -180,3 +182,5 @@ Key VSCode plugin implementation points:
 - [X] update README.org
 
 - [ ] reannounce the package (once enough features are ready)
+
+- [ ] Suggest for inclusion to Ren'py itself?

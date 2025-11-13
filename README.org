@@ -80,7 +80,7 @@ Once configured, try within a ~renpy-mode~ buffer:
 
 - ~C-c C-j~ show Imenu.
 
-- ~M-.~ jump to label / screen / transform definitions.
+- ~M-.~ jump to definition.
 
 ** Launcher integration
 
@@ -89,6 +89,25 @@ integration with Emacs. Having the RENPY_EDIT_PY environment variable set to the
 path of the file would force Ren'py launcher to use Emacs as a default editor.
 
 See https://www.renpy.org/doc/html/editor.html for details.
+
+** Completion and jump-to-definition mechanisms
+
+~renpy-mode~'s completion and definition mechanisms currently search symbols
+across all open buffers belonging to a Ren'Py project defined by a top-level
+~game/~ directory. As per-buffer symbol lists are cached the lookup is fast even
+for relatively big projects.
+
+The following symbol definitions are recognised and used for both completion and
+jump-to-definition mechanisms:
+
+- labels
+- images
+- transforms
+- screens
+
+Unlike most Emacs modes not based on LSP, ~renpy-mode~ tries to be as precise as
+possible when building a list of completions/definitions by parsing local
+context.
 
 ** History
 
