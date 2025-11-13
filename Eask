@@ -8,6 +8,8 @@
 (keywords "languages")
 
 (package-file "renpy-mode.el")
+(files "renpy-mode.el")
+(files "emacs.edit.py")
 
 (script "test" "echo \"Error: no test specified\" && exit 1")
 
