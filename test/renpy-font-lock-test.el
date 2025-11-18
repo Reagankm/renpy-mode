@@ -82,6 +82,18 @@ show layer lay111 at left
 scene bg whitehouse with fade
 # <- font-lock-keyword-face
 #^^^^               ^^^^ font-lock-keyword-face
+")
+
+;;;; Python Keywords
+
+  (ert-font-lock-deftest test-renpy-font-lock-python-keywords renpy-mode
+  "
+python:
+    match x:
+#   ^^^^^ font-lock-keyword-face
+        case _:
+#       ^^^^ font-lock-keyword-face
+            print(\"Unknown case\")
 "))
 
 ;;; renpy-font-lock-test.el ends here
