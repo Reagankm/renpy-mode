@@ -20,7 +20,6 @@
 
 import renpy
 import subprocess
-import os.path
 
 
 class Editor(renpy.editor.Editor):
